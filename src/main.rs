@@ -53,7 +53,7 @@ fn main() {
     }
     println!("API key is good!");
     println!("Testing Channel ID...");
-    
+
     match test_channel_id(channel_id, api_key) {
         Err(test_fail) => {
             match test_fail {
@@ -63,7 +63,7 @@ fn main() {
             }
             std::process::exit(1)
         }
-        Ok(name) => println!("Found {:?}",name),
+        Ok(name) => println!("Found {:?}", name),
     }
 
     //TODO: get those comments!
@@ -93,7 +93,7 @@ fn test_key(key: &str) -> Option<KeyTestFail> {
     let json: Value = serde_json::from_str(&result.unwrap()).unwrap(); //TODO: double unwrap! ugly!
                                                                        // Now test if we got an error response.
     match json["error"]["code"].as_i64() {
-        None => return None,                        // No error means test passed!
+        None => return None,                           // No error means test passed!
         Some(400) => return Some(KeyTestFail::BadKey), // Token is no good!
         Some(_) => {
             return Some(KeyTestFail::SomethingBroke(format!(
@@ -110,7 +110,7 @@ enum ChannelTestFail {
     SomethingBroke(String),
 }
 
-fn test_channel_id(channel_id: &str, key: &str) -> Result<String,ChannelTestFail> {
+fn test_channel_id(channel_id: &str, key: &str) -> Result<String, ChannelTestFail> {
     // Is this channel real?
     // Build test URL:
 
@@ -146,7 +146,7 @@ fn test_channel_id(channel_id: &str, key: &str) -> Result<String,ChannelTestFail
     // Check for error codes again
 
     match json["error"]["code"].as_i64() {
-        None => (),                        // No error means test passed!
+        None => (),                                           // No error means test passed!
         Some(400) => return Err(ChannelTestFail::BadChannel), // Token is no good!
         Some(_) => {
             return Err(ChannelTestFail::SomethingBroke(format!(
@@ -337,7 +337,3 @@ fn get_comments_from_video(
     }
     return Ok(return_vec);
 }
-
-//fn c_post(input: String) -> Result<String, CurlFail> {
-//    todo!()
-//}
