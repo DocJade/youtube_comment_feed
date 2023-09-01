@@ -15,6 +15,7 @@
 use clap::Parser;
 // curl library
 use curl::easy::{Easy, List};
+use serde_json::Value;
 
 // Set up command line arguments
 #[derive(Parser, Debug)]
@@ -34,34 +35,51 @@ fn main() {
     let api_key: &str = &args.api_key;
 
     // Test the token.
-    match test_token(api_key) {
-        Some(test_fail) => panic!("Bad key or token: {:?}", test_fail),
+    println!("Testing Token...");
+    match test_key(api_key) {
+        Some(test_fail) => {
+            match test_fail {
+                TestFail::BadKey => println!("Bad API key!"),
+                TestFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
+                TestFail::SomethingBroke(e) => println!("Something broke! : {:?}", e)
+            }
+            std::process::exit(1)
+        },
         None => ()
     }
+    println!("Token is good!");
 
-    //token_test = todo!()
+    //TODO: get those comments!
 }
 
 #[derive(Debug)]
 enum TestFail {
     CurlFailure(CurlFail),
-    BadToken
+    BadKey,
+    SomethingBroke(String)
 }
 
-fn test_token(key: &str) -> Option<TestFail> {
+fn test_key(key: &str) -> Option<TestFail> {
     // Build the test URL
     let function: String = "search?part=snippet".to_string();
     let max_results: String = "&maxResults=1".to_string();
     let search_term: String = "&q=Never%20gonna%20give%20you%20up".to_string();
     let the_key: String = format!("&key={}",&key);
     let query: String = API_URL.to_owned() + &function + &max_results + &search_term + &the_key;
-    let result = c_get(&query);
-    match result {
-        Ok(_) => (),
+    // Run the query
+    let mut result: std::result::Result<String, CurlFail> = c_get(&query);
+    result = match result {
         Err(e) => return Some(TestFail::CurlFailure(e)),
+        Ok(s) => Ok(s),
     };
-    print!("{:?}",result);
-    panic!("test")
+    // Cool! We got some JSON! let's unwrap it and check it
+    let json: Value = serde_json::from_str(&result.unwrap()).unwrap(); //TODO: double unwrap! ugly!
+    // Now test if we got an error response.
+    match json["error"]["code"].as_i64() {
+        None => return None, // No error means test passed!
+        Some(400) => return Some(TestFail::BadKey), // Token is no good!
+        Some(_) => return Some(TestFail::SomethingBroke(format!("Failure checking token! {}", json))) //number other than 400!
+    }
 }
 
 // Make some easier functions for Curl
@@ -74,7 +92,7 @@ enum CurlFail {
     HeaderIssue
 }
 
-fn c_get(input: &str) -> Result<String, CurlFail> {
+fn c_get(input: &str) -> std::result::Result<String, CurlFail> {
     use std::sync::{Arc, Mutex};
     // create an easy from CURL
     let mut curl = Easy::new();
