@@ -25,6 +25,8 @@ struct Args {
     // Required.
     #[arg(long, required = true)]
     api_key: String,
+    #[arg(long, required = true)]
+    channel_id: String,
 }
 
 // Store this bit of the youtube url to save space
@@ -34,36 +36,47 @@ fn main() {
     // Grab the Token from CLI
     let args = Args::parse();
     let api_key: &str = &args.api_key;
+    let channel_id: &str = &args.channel_id;
 
     // Test the token.
     println!("Testing API key...");
     match test_key(api_key) {
         Some(test_fail) => {
             match test_fail {
-                TestFail::BadKey => println!("Bad API key!"),
-                TestFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
-                TestFail::SomethingBroke(e) => println!("Something broke! : {:?}", e),
+                KeyTestFail::BadKey => println!("Bad API key!"),
+                KeyTestFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
+                KeyTestFail::SomethingBroke(e) => println!("Something broke! : {:?}", e),
             }
             std::process::exit(1)
         }
         None => (),
     }
     println!("API key is good!");
-    println!("TEST lets grab some comments!");
-    let comments: Vec<YTComment> = get_comments_from_video(api_key, "maxsZF-rsb4", 5).unwrap();
-    println!("Comment 1: {}", comments[0].content)
+    println!("Testing Channel ID...");
+    
+    match test_channel_id(channel_id, api_key) {
+        Err(test_fail) => {
+            match test_fail {
+                ChannelTestFail::BadChannel => println!("Bad Channel ID!"),
+                ChannelTestFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
+                ChannelTestFail::SomethingBroke(e) => println!("Something broke! : {:?}", e),
+            }
+            std::process::exit(1)
+        }
+        Ok(name) => println!("Found {:?}",name),
+    }
 
     //TODO: get those comments!
 }
 
 #[derive(Debug)]
-enum TestFail {
+enum KeyTestFail {
     CurlFailure(CurlFail),
     BadKey,
     SomethingBroke(String),
 }
 
-fn test_key(key: &str) -> Option<TestFail> {
+fn test_key(key: &str) -> Option<KeyTestFail> {
     // Build the test URL
     let function: String = "search?part=snippet".to_string();
     let max_results: String = "&maxResults=1".to_string();
@@ -73,7 +86,7 @@ fn test_key(key: &str) -> Option<TestFail> {
     // Run the query
     let mut result: std::result::Result<String, CurlFail> = c_get(&query);
     result = match result {
-        Err(e) => return Some(TestFail::CurlFailure(e)),
+        Err(e) => return Some(KeyTestFail::CurlFailure(e)),
         Ok(s) => Ok(s),
     };
     // Cool! We got some JSON! let's unwrap it and check it
@@ -81,14 +94,72 @@ fn test_key(key: &str) -> Option<TestFail> {
                                                                        // Now test if we got an error response.
     match json["error"]["code"].as_i64() {
         None => return None,                        // No error means test passed!
-        Some(400) => return Some(TestFail::BadKey), // Token is no good!
+        Some(400) => return Some(KeyTestFail::BadKey), // Token is no good!
         Some(_) => {
-            return Some(TestFail::SomethingBroke(format!(
+            return Some(KeyTestFail::SomethingBroke(format!(
                 "Failure checking token! {}",
                 json
             )))
         } //number other than 400!
     }
+}
+
+enum ChannelTestFail {
+    CurlFailure(CurlFail),
+    BadChannel,
+    SomethingBroke(String),
+}
+
+fn test_channel_id(channel_id: &str, key: &str) -> Result<String,ChannelTestFail> {
+    // Is this channel real?
+    // Build test URL:
+
+    // Base URL
+    let base_url = "channels";
+
+    // Query parameters
+    let part_param = "part=snippet";
+    let id_param = format!("id={}", channel_id);
+    let fields_param = "fields=items(snippet(title))";
+
+    // API Key
+    let api_key = format!("&key={}", &key);
+
+    // Combine the parts to create the full query
+    let query = format!(
+        "{}{}?{}&{}&{}&{}",
+        API_URL, base_url, part_param, id_param, fields_param, api_key
+    );
+
+    // Run the query
+    let mut result: std::result::Result<String, CurlFail> = c_get(&query);
+
+    // Make sure that curl went well.
+
+    result = match result {
+        Err(e) => return Err(ChannelTestFail::CurlFailure(e)),
+        Ok(s) => Ok(s),
+    };
+
+    let json: Value = serde_json::from_str(&result.unwrap()).unwrap(); //TODO: double unwrap! ugly!
+
+    // Check for error codes again
+
+    match json["error"]["code"].as_i64() {
+        None => (),                        // No error means test passed!
+        Some(400) => return Err(ChannelTestFail::BadChannel), // Token is no good!
+        Some(_) => {
+            return Err(ChannelTestFail::SomethingBroke(format!(
+                "Failure checking channel! {}",
+                json
+            )))
+        } //number other than 400!
+    }
+
+    //All good! return the channel name.
+
+    let title = json["items"][0]["snippet"]["title"].as_str().unwrap();
+    Ok(title.to_string())
 }
 
 // Make some easier functions for Curl
