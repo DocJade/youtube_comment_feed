@@ -90,7 +90,11 @@ fn c_get(input: &str) -> Result<String, CurlFail> {
 
     // Set headers
     let mut headers = List::new();
-    headers.append("Accept: application/json");
+
+    match headers.append("Accept: application/json") {
+        Ok(_) => (),
+        Err(_) => return Err(CurlFail::HeaderIssue),
+    }
     
     match curl.http_headers(headers) {
         Ok(_) => (),
