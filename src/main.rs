@@ -33,6 +33,12 @@ struct Args {
 const API_URL: &str = "https://youtube.googleapis.com/youtube/v3/";
 
 fn main() {
+    init()
+}
+
+fn init(){
+    //setup and tests!
+
     // Grab the Token from CLI
     let args = Args::parse();
     let api_key: &str = &args.api_key;
