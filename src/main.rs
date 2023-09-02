@@ -63,10 +63,32 @@ fn main() {
             }
             std::process::exit(1)
         }
-        Ok(name) => println!("Found {:?}", name),
+        Ok(name) => println!("Found {:?}!", name),
     }
 
-    //TODO: get those comments!
+    // Now get all video from the channel
+    println!("Getting channel videos...");
+    
+    let mut videos: Vec<Video> = Vec::new();
+    
+    match get_videos_from_channel(api_key, channel_id) {
+        Ok(okay) => videos = okay,
+        Err(fail) => {
+            match fail {
+                ChannelVideosFail::NoVideos => println!("Channel appears to have no videos!"),
+                ChannelVideosFail::BadKey => println!("Key went bad?"),
+                ChannelVideosFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
+                ChannelVideosFail::SomethingElse(e) => println!("Something broke! : {:?}", e),
+            }
+            std::process::exit(1)
+        }
+    }
+    println!("Got {} channel videos!", videos.len());
+    
+    // Should have some videos now!
+    // print one of them.
+
+    println!("Most recent video is {:?}.",videos[0].title);
 }
 
 #[derive(Debug)]
@@ -336,4 +358,92 @@ fn get_comments_from_video(
         return Err(CommentFail::NoComments);
     }
     return Ok(return_vec);
+}
+
+#[derive(Debug)]
+enum ChannelVideosFail {
+    NoVideos,
+    BadKey,
+    CurlFailure(CurlFail),
+    SomethingElse(String),
+}
+
+#[derive(Debug)]
+struct Video {
+    title: String,
+    id: String,
+}
+
+fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, ChannelVideosFail> {
+    // Lets get those videos
+    // Create the URL for the API request
+    let function = "search?part=snippet";
+    let max_results = "&maxResults=4294967295";
+    let order = "&order=date";
+    let fields = "&fields=items(id(videoId)%2Csnippet(title))";
+    let api_key = format!("&key={}", key);
+    let channel_param = format!("&channelId={}", channel_id);
+    let query = format!(
+        "{}{}{}{}{}{}{}",
+        API_URL, function, max_results, order, fields, api_key, channel_param
+    );
+
+    // run that query
+    let result: Result<String, CurlFail> = c_get(&query);
+
+    // Handle them errors.
+
+    let json: String;
+    // Roll up errors
+    match result {
+        Ok(okay) => json = okay,
+        Err(error) => return Err(ChannelVideosFail::CurlFailure(error)),
+    }
+
+    // Good stuff, crack it open.
+    let unwrapped_json: Value = serde_json::from_str(&json).unwrap();
+
+    // Error handling again
+
+    match unwrapped_json["error"]["code"].as_i64() {
+        None => (),                                         // No error means test passed!
+        Some(400) => return Err(ChannelVideosFail::BadKey), // Token is no good!
+        Some(code) => {
+            return Err(ChannelVideosFail::SomethingElse(format!(
+                "Unknown response code! : {}",
+                code
+            )))
+        }
+    };
+
+    // return format should match
+    // {
+    //     "items": [
+    //       {
+    //         "id": {
+    //           "videoId": "ID"
+    //         },
+    //         "snippet": {
+    //           "title": "TITLE"
+    //         }
+    //       },
+    // }
+
+    let mut return_vec: Vec<Video> = Vec::new();
+
+    let items_array = unwrapped_json["items"].as_array().unwrap();
+    let bad_chars = &['\"']; // Dont want these in our titles
+
+    // Pull those titles and ID's out!
+
+    for item in items_array {
+        let wrapped: Video = Video {
+            title: item["snippet"]["title"].to_string().trim().replace(bad_chars, "").to_string(),
+            id: item["id"]["videoId"].to_string(),
+        };
+        // onto the vec it goes
+        return_vec.push(wrapped);
+    }
+
+    Ok(return_vec)
 }
