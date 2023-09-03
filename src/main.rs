@@ -11,6 +11,10 @@
     clippy::perf
 )]
 
+// TODO: convert emoji's into their names.
+
+use std::vec;
+
 // Import the CLI argument parser
 use clap::Parser;
 // curl library
@@ -32,15 +36,39 @@ struct Args {
 // Store this bit of the youtube url to save space
 const API_URL: &str = "https://youtube.googleapis.com/youtube/v3/";
 
-fn main() {
-    init()
+#[derive(Debug, Clone)]
+struct TrackedVideo {
+    title: String,
+    video_id: String,
+    most_recent_timestamp: u64,     // The timestamp of the most recent comment we saw last update.
+    queued_comments: Vec<String>,   // Comments that are waiting for the print cycle.
+    recheck_delay: u16              // How many seconds to wait until next update.
 }
 
-fn init(){
+fn main() {
+    let args: Args = init();
+
+    // Now that everything is ready to go, lets start tracking
+    // comments!
+
+    // The master Vec contains the TrackedVideo struct for... tracking videos.
+    let master: Vec<TrackedVideo> = Vec::new();
+
+
+
+    // Now we shall add all videos that currently exist on input channel
+    // and set the most recent timestamp to NOW
+    print!("Building tracked videos list... ");
+
+    println!("Done!")
+    
+}
+
+fn init() -> Args {
     //setup and tests!
 
     // Grab the Token from CLI
-    let args = Args::parse();
+    let args: Args = Args::parse();
     let api_key: &str = &args.api_key;
     let channel_id: &str = &args.channel_id;
 
@@ -95,6 +123,9 @@ fn init(){
     // print one of them.
 
     println!("Most recent video is {:?}.",videos[0].title);
+
+    // Now that we're done testing, return the args back to main.
+    return args;
 }
 
 #[derive(Debug)]
@@ -452,4 +483,57 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
     }
 
     Ok(return_vec)
+}
+
+#[derive(Debug)]
+enum ListUpdateError {
+    ChannelIssue(ChannelVideosFail),
+    SomethingElse(String)
+}
+
+fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Result<Vec<TrackedVideo>, ListUpdateError> {
+    // This function takes in the list of videos, checks the channel to see
+    // if there are videos on the channel that do not exist in the list yet.
+
+    let mut current_videos: Vec<Video> = Vec::new();
+    let mut output: Vec<TrackedVideo> = Vec::new();
+
+    // grab all of the videos off of the channel
+    match get_videos_from_channel(key, channel_id) {
+        Ok(okay) => current_videos = okay,
+        Err(error) => return Err(ListUpdateError::ChannelIssue(error)),
+    };
+
+    // Video list is good, now lets compare.
+
+    // If the length of the 2 Vec are the same, its pretty safe to assume there hasnt been a new video.
+
+    if old.len() == current_videos.len() {
+        // The same! exit early
+        return Ok(old)
+    }
+
+    // Build the new videos into a TrackedVideo
+    let mut new_tracked_videos:Vec<TrackedVideo> = Vec::new();
+
+    for i in current_videos{
+        new_tracked_videos.push(TrackedVideo {
+            title: i.title,
+            video_id: i.id,
+            most_recent_timestamp: 0,
+            queued_comments: [].to_vec(),
+            recheck_delay: 10,
+        })
+    }
+
+    // Combine the new list with the old list
+    // and remove dupes.
+
+    //`old` comes first to make sure we discard matching news, not olds.
+    let mut output: Vec<TrackedVideo> = old.iter().chain(new_tracked_videos.iter()).cloned().collect();
+    output.sort_by(|a, b| a.video_id.cmp(&b.video_id));
+    output.dedup_by(|a, b| a.video_id == b.video_id);
+
+    // we're done!
+    return Ok(output);
 }
