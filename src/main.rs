@@ -20,6 +20,7 @@
 )]
 
 // TODO: convert emoji's into their names.
+// TODO: Recurse into the comments to check their comments on the comments? // might be too expensive.
 
 use core::panic;
 
@@ -70,7 +71,7 @@ fn main() {
 
     // Now we shall add all videos that currently exist on input channel
     // and set the most recent timestamp to NOW
-    print!("Building tracked videos list... ");
+    println!("Building tracked videos list...");
     let returned = update_video_list(master.clone(), channel_id, api_key);
     match returned {
         Ok(okay) => master = okay,
@@ -102,7 +103,7 @@ fn main() {
         },
     }
     println!("{}", "Done!".green());
-    print!("Grabbing comments... ");
+    println!("Grabbing comments...");
     master = match queue_comments(master, api_key) {
         Ok(okay) => okay,
         Err(error) => match error {
@@ -134,32 +135,29 @@ fn init() -> Args {
     let channel_id: &str = &args.channel_id;
 
     // Test the token.
-    print!("Testing API key... ");
-    test_key(api_key).map_or((), |test_fail| {
-        match test_fail {
-            KeyTestFail::BadKey => println!("Bad API key!"),
-            KeyTestFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
-            KeyTestFail::SomethingBroke(e) => println!("Something broke! : {e:?}"),
-        }
-        std::process::exit(1)
-    });
-    println!("{}", "API key is good!".green());
-    print!("Testing Channel ID... ");
-
-    match test_channel_id(channel_id, api_key) {
-        Err(test_fail) => {
-            match test_fail {
-                ChannelTestFail::BadChannel => println!("Bad Channel ID!"),
-                ChannelTestFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
-                ChannelTestFail::SomethingBroke(e) => println!("Something broke! : {e:?}"),
+    println!("Testing API key and channel ID...");
+    let channel_name: String;
+    match test_channel_and_key(channel_id, api_key) {
+        Ok(okay) => channel_name = okay,
+        Err(error) => {
+            match error {
+                KeyChannelTestFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
+                KeyChannelTestFail::BadKey => println!("{}", "Bad API key!".red()),
+                KeyChannelTestFail::BadChannel => println!("{}", "Channel does not exist!".red()),
+                KeyChannelTestFail::SomethingBroke(e) => println!("Something broke! : {e:?}"),
             }
-            std::process::exit(1)
+            std::process::exit(1) // Cannot continue.
         }
-        Ok(name) => println!("{}", format!("Found {name:?}!").green()),
-    }
+    };
+
+    println!(
+        "{}{}",
+        format!("Found {channel_name:?}").green(),
+        "and API key is good!".green()
+    );
 
     // Now get all video from the channel
-    print!("Getting channel videos... ");
+    println!("Getting channel videos...");
 
     let videos: Vec<Video>;
 
@@ -193,44 +191,14 @@ fn init() -> Args {
 }
 
 #[derive(Debug)]
-enum KeyTestFail {
+enum KeyChannelTestFail {
     CurlFailure(CurlFail),
     BadKey,
-    SomethingBroke(String),
-}
-
-fn test_key(key: &str) -> Option<KeyTestFail> {
-    // Build the test URL
-    let function: String = "search?part=snippet".to_string();
-    let max_results: String = "&maxResults=1".to_string();
-    let search_term: String = "&q=Never%20gonna%20give%20you%20up".to_string();
-    let the_key: String = format!("&key={}", &key);
-    let query: String = API_URL.to_owned() + &function + &max_results + &search_term + &the_key;
-    // Run the query
-    let mut result: std::result::Result<String, CurlFail> = c_get(&query);
-    result = match result {
-        Err(e) => return Some(KeyTestFail::CurlFailure(e)),
-        Ok(s) => Ok(s),
-    };
-    // Cool! We got some JSON! let's unwrap it and check it
-    let json: Value = serde_json::from_str(&result.unwrap()).unwrap(); //TODO: double unwrap! ugly!
-                                                                       // Now test if we got an error response.
-    match json["error"]["code"].as_i64() {
-        None => None,                           // No error means test passed!
-        Some(400) => Some(KeyTestFail::BadKey), // Token is no good!
-        Some(_) => Some(KeyTestFail::SomethingBroke(format!(
-            "Failure checking token! {json}"
-        ))), //number other than 400!
-    }
-}
-
-enum ChannelTestFail {
-    CurlFailure(CurlFail),
     BadChannel,
     SomethingBroke(String),
 }
 
-fn test_channel_id(channel_id: &str, key: &str) -> Result<String, ChannelTestFail> {
+fn test_channel_and_key(channel_id: &str, key: &str) -> Result<String, KeyChannelTestFail> {
     // Is this channel real?
     // Build test URL:
 
@@ -253,20 +221,26 @@ fn test_channel_id(channel_id: &str, key: &str) -> Result<String, ChannelTestFai
 
     // Make sure that curl went well.
 
-    result = match result {
-        Err(e) => return Err(ChannelTestFail::CurlFailure(e)),
-        Ok(s) => Ok(s),
+    let result_string: String = match result {
+        Err(e) => return Err(KeyChannelTestFail::CurlFailure(e)),
+        Ok(s) => s,
     };
 
-    let json: Value = serde_json::from_str(&result.unwrap()).unwrap(); //TODO: double unwrap! ugly!
-
-    // Check for error codes again
+    let json: Value = serde_json::from_str(&result_string).unwrap(); //TODO: double unwrap! ugly!
 
     match json["error"]["code"].as_i64() {
-        None => (),                                           // No error means test passed!
-        Some(400) => return Err(ChannelTestFail::BadChannel), // Token is no good!
+        None => {
+            // either the test passed, or its a non-existant channel.
+            if result_string == "{}\n" {
+                // channel does not exist!
+                return Err(KeyChannelTestFail::BadChannel)
+            }
+            //otherwise we're probably fine?
+        },                                              
+        Some(400) => return Err(KeyChannelTestFail::BadKey), // Token is no good!
+        Some(0) => return Err(KeyChannelTestFail::BadChannel), // No such channel!
         Some(_) => {
-            return Err(ChannelTestFail::SomethingBroke(format!(
+            return Err(KeyChannelTestFail::SomethingBroke(format!(
                 "Failure checking channel! {json}"
             )))
         } //number other than 400!
