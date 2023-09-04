@@ -503,6 +503,11 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
     // Pull those titles and ID's out!
 
     for item in items_array {
+        // check for nulls
+        if item["snippet"]["title"] == Value::Null ||  item["id"]["videoId"] == Value::Null {
+            // Nulls are a no-no, skip
+            continue;
+        }
         let wrapped: Video = Video {
             title: item["snippet"]["title"].to_string().trim().replace(bad_chars, "").to_string(),
             id: item["id"]["videoId"].to_string(),
