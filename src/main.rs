@@ -13,7 +13,7 @@
 
 // TODO: convert emoji's into their names.
 
-use std::vec;
+use std::{vec, f32::consts::E};
 
 // Import the CLI argument parser
 use clap::Parser;
@@ -47,20 +47,49 @@ struct TrackedVideo {
 
 fn main() {
     let args: Args = init();
+    let api_key: &str = &args.api_key;
+    let channel_id: &str = &args.channel_id;
 
     // Now that everything is ready to go, lets start tracking
     // comments!
 
     // The master Vec contains the TrackedVideo struct for... tracking videos.
-    let master: Vec<TrackedVideo> = Vec::new();
+    let mut master: Vec<TrackedVideo> = Vec::new();
 
 
 
     // Now we shall add all videos that currently exist on input channel
     // and set the most recent timestamp to NOW
     print!("Building tracked videos list... ");
-
-    println!("Done!")
+    let returned = update_video_list(master.clone(), channel_id, api_key);
+    match returned {
+        Ok(okay) => master = okay,
+        Err(error) => match error {
+            ListUpdateError::ChannelIssue(e) => match e {
+                ChannelVideosFail::NoVideos => !unreachable!(),
+                ChannelVideosFail::BadKey => !unreachable!(),
+                ChannelVideosFail::CurlFailure(e) => {
+                    // we need to go deeper.
+                    match e {
+                        CurlFail::SomethingBroke(e) => {
+                            print!("Unknown curl failure during first list build! : {}", e)
+                        },
+                        CurlFail::BadURL => !unreachable!(),
+                        CurlFail::DataIssue => !unreachable!(),
+                        CurlFail::HeaderIssue => !unreachable!(),
+                    }
+                },
+                ChannelVideosFail::SomethingElse(e) => {
+                    print!("Unknown failure during first list build! : {}", e)
+                },
+            },
+            ListUpdateError::SomethingElse(e) => {
+                print!("Unknown failure during first list build! : {}", e)
+            },
+        },
+    }
+    println!("Done!");
+    println!("{:?}", master);
     
 }
 
@@ -103,7 +132,7 @@ fn init() -> Args {
     // Now get all video from the channel
     println!("Getting channel videos...");
     
-    let mut videos: Vec<Video> = Vec::new();
+    let videos: Vec<Video>;
     
     match get_videos_from_channel(api_key, channel_id) {
         Ok(okay) => videos = okay,
@@ -523,7 +552,7 @@ fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Res
             most_recent_timestamp: 0,
             queued_comments: [].to_vec(),
             recheck_delay: 10,
-        })
+        });
     }
 
     // Combine the new list with the old list
