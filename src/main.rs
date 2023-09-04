@@ -8,7 +8,15 @@
     clippy::expect_used,
     clippy::correctness,
     clippy::style,
-    clippy::perf
+    clippy::perf,
+    clippy::complexity,
+    clippy::cognitive_complexity,
+    clippy::double_parens,
+    clippy::len_zero,
+    clippy::question_mark,
+    clippy::suspicious,
+    clippy::todo,
+    //clippy::all  //for extra anger
 )]
 
 // TODO: convert emoji's into their names.
