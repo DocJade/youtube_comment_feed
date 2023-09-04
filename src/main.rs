@@ -19,9 +19,13 @@ use core::panic;
 // Import the CLI argument parser
 use clap::Parser;
 // curl library
-use chrono::DateTime;
 use curl::easy::{Easy, List};
+// json handling
 use serde_json::Value;
+// time handling
+use chrono::DateTime;
+// colored text
+use colored::Colorize;
 
 // Set up command line arguments
 #[derive(Parser, Debug)]
@@ -42,7 +46,7 @@ struct TrackedVideo {
     title: String,
     video_id: String,
     most_recent_timestamp: u64,     // The timestamp of the most recent comment we saw last update.
-    queued_comments: Vec<String>,   // Comments that are waiting for the print cycle.
+    queued_comments: Vec<YTComment>,   // Comments that are waiting for the print cycle.
     recheck_delay: u16              // How many seconds to wait until next update.
 }
 
@@ -88,8 +92,25 @@ fn main() {
             },
         },
     }
-    println!("Done!");
-    println!("{master:?}");
+    println!("{}", "Done!".green());
+    print!("Grabbing comments... ");
+    master = match queue_comments(master, api_key) {
+        Ok(okay) => okay,
+        Err(error) => match error {
+            CommentQueueFail::SomethingElse(error) => panic!("{error:?}"),
+            CommentQueueFail::CommentFailed(_) => todo!(),
+            CommentQueueFail::CurlFailed(_) => todo!(),
+        },
+    };
+    println!("{}", "Done!".green());
+
+    for video in master {
+        println!("{}", format!("{}:\n", video.title).cyan());
+        for comment in video.queued_comments {
+            println!("{}: {}\n", comment.author_name.to_string().blue(), comment.content);
+        }
+    }
+    
     
 }
 
@@ -102,7 +123,7 @@ fn init() -> Args {
     let channel_id: &str = &args.channel_id;
 
     // Test the token.
-    println!("Testing API key...");
+    print!("Testing API key... ");
     test_key(api_key).map_or((), |test_fail| {
             match test_fail {
                 KeyTestFail::BadKey => println!("Bad API key!"),
@@ -111,8 +132,8 @@ fn init() -> Args {
             }
             std::process::exit(1)
         });
-    println!("API key is good!");
-    println!("Testing Channel ID...");
+    println!("{}","API key is good!".green());
+    print!("Testing Channel ID... ");
 
     match test_channel_id(channel_id, api_key) {
         Err(test_fail) => {
@@ -123,11 +144,11 @@ fn init() -> Args {
             }
             std::process::exit(1)
         }
-        Ok(name) => println!("Found {name:?}!"),
+        Ok(name) => println!("{}", format!("Found {name:?}!").green()),
     }
 
     // Now get all video from the channel
-    println!("Getting channel videos...");
+    print!("Getting channel videos... ");
     
     let videos: Vec<Video>;
     
@@ -143,12 +164,12 @@ fn init() -> Args {
             std::process::exit(1)
         }
     }
-    println!("Got {} channel videos!", videos.len());
+    println!("{}", format!("Got {} channel videos!", videos.len()).green());
     
     // Should have some videos now!
     // print one of them.
 
-    println!("Most recent video is {:?}.",videos[0].title);
+    println!("Most recent video is {}.",format!("{:?}",videos[0].title).yellow());
 
     // Now that we're done testing, return the args back to main.
     args
@@ -305,7 +326,7 @@ fn c_get(input: &str) -> std::result::Result<String, CurlFail> {
     Ok(response_string)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct YTComment {
     content: String,
     author_name: String,
@@ -359,9 +380,7 @@ fn get_comments_from_video(
         None => (),                                   // No error means test passed!
         Some(400) => return Err(CommentFail::BadKey), // Token is no good!
         Some(code) => {
-            return Err(CommentFail::SomethingElse(format!(
-                "Unknown response code! : {code}"
-            )))
+            panic!("Unknown response code! : {code} :: {unwrapped_json:?}")
         }
     };
 
@@ -499,7 +518,7 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
         }
         let wrapped: Video = Video {
             title: item["snippet"]["title"].to_string().trim().replace(bad_chars, "").to_string(),
-            id: item["id"]["videoId"].to_string(),
+            id: item["id"]["videoId"].to_string().trim().replace(bad_chars, "").to_string(),
         };
         // onto the vec it goes
         return_vec.push(wrapped);
@@ -557,4 +576,68 @@ fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Res
 
     // we're done!
     Ok(output)
+}
+
+enum CommentQueueFail {
+    SomethingElse(String),
+    CommentFailed(CommentFail),
+    CurlFailed(CurlFail),
+}
+
+fn queue_comments(video_list: Vec<TrackedVideo>, key:&str ) -> Result<Vec<TrackedVideo>, CommentQueueFail> {
+    // This function takes in a list of tracked videos, and updates each entry with
+    // new comments on those videos.
+
+    let mut output_list: Vec<TrackedVideo> =  Vec::new();
+
+    // Loop over each video in the list!
+
+    for video in video_list {
+        
+        // TODO: timed update checking.
+        // if update not needed continue
+
+        // Grab the most recent comments from this video
+        // TODO: Increase comments retrieved until we find one with timestamp that older than video.most_recent_timestamp
+
+        let comments: Vec<YTComment> = match get_comments_from_video(key, &video.video_id, 5) {
+            Ok(messages) => messages,
+            Err(error) => match error {
+                CommentFail::NoComments => continue, // There are no comments, so there cant be any new ones either!
+                CommentFail::BadKey | CommentFail::EpochFail => return Err(CommentQueueFail::CommentFailed(error)),
+                CommentFail::CurlFailure(error) => return Err(CommentQueueFail::CurlFailed(error)),
+                CommentFail::SomethingElse(error) => return Err(CommentQueueFail::SomethingElse(error)),
+            },
+        };
+
+        // Now check if the comments are newer than most_recent_timestamp
+        let mut new_comments: Vec<YTComment> = Vec::new();
+        let mut out_updated: TrackedVideo = video.clone();
+        let mut new_max_timestamp: u64 = video.most_recent_timestamp;
+
+        for comment in comments {
+            if comment.timestamp >= video.most_recent_timestamp {
+                // comment is new! add to the list!
+                // update the new timestamp if its the new best
+                if comment.timestamp >= new_max_timestamp {
+                    new_max_timestamp = comment.timestamp;
+                }
+
+                // add it to the comment buffer!
+                new_comments.push(comment);
+            }
+        }
+
+        // Add the comments (if there are any) to the TrackedVideo
+        out_updated.queued_comments.append(&mut new_comments);
+
+        // Apply the new most recent timestamp
+        out_updated.most_recent_timestamp = new_max_timestamp;
+
+        // Now push the updated video to the output
+        output_list.push(out_updated);
+    }
+
+    // All the comments should be updated now!
+    Ok(output_list)
 }
