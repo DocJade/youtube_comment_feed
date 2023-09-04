@@ -13,7 +13,6 @@
 
 // TODO: convert emoji's into their names.
 
-
 use core::panic;
 
 // Import the CLI argument parser
@@ -45,9 +44,9 @@ const API_URL: &str = "https://youtube.googleapis.com/youtube/v3/";
 struct TrackedVideo {
     title: String,
     video_id: String,
-    most_recent_timestamp: u64,     // The timestamp of the most recent comment we saw last update.
-    queued_comments: Vec<YTComment>,   // Comments that are waiting for the print cycle.
-    recheck_delay: u16              // How many seconds to wait until next update.
+    most_recent_timestamp: u64, // The timestamp of the most recent comment we saw last update.
+    queued_comments: Vec<YTComment>, // Comments that are waiting for the print cycle.
+    recheck_delay: u16,         // How many seconds to wait until next update.
 }
 
 fn main() {
@@ -61,8 +60,6 @@ fn main() {
     // The master Vec contains the TrackedVideo struct for... tracking videos.
     let mut master: Vec<TrackedVideo> = Vec::new();
 
-
-
     // Now we shall add all videos that currently exist on input channel
     // and set the most recent timestamp to NOW
     print!("Building tracked videos list... ");
@@ -71,25 +68,29 @@ fn main() {
         Ok(okay) => master = okay,
         Err(error) => match error {
             ListUpdateError::ChannelIssue(e) => match e {
-                ChannelVideosFail::NoVideos | ChannelVideosFail::BadKey => panic!("Should be unreachable! bad key or no videos!"),
+                ChannelVideosFail::NoVideos | ChannelVideosFail::BadKey => {
+                    panic!("Should be unreachable! bad key or no videos!")
+                }
                 ChannelVideosFail::CurlFailure(e) => {
                     // we need to go deeper.
                     match e {
                         CurlFail::SomethingBroke(e) => {
                             print!("Unknown curl failure during first list build! : {e}");
-                        },
-                        CurlFail::BadURL | CurlFail::DataIssue | CurlFail::HeaderIssue => panic!("Should be unreachable! BadURL DataIssue HeaderIssue"),
+                        }
+                        CurlFail::BadURL | CurlFail::DataIssue | CurlFail::HeaderIssue => {
+                            panic!("Should be unreachable! BadURL DataIssue HeaderIssue")
+                        }
                     }
-                },
+                }
                 ChannelVideosFail::SomethingElse(e) => {
                     print!("Unknown failure during first list build! : {e}");
                     std::process::exit(1)
-                },
+                }
             },
             ListUpdateError::SomethingElse(e) => {
                 print!("Unknown failure during first list build! : {e}");
                 std::process::exit(1)
-            },
+            }
         },
     }
     println!("{}", "Done!".green());
@@ -107,11 +108,13 @@ fn main() {
     for video in master {
         println!("{}", format!("{}:\n", video.title).cyan());
         for comment in video.queued_comments {
-            println!("{}: {}\n", comment.author_name.to_string().blue(), comment.content);
+            println!(
+                "{}: {}\n",
+                comment.author_name.to_string().blue(),
+                comment.content
+            );
         }
     }
-    
-    
 }
 
 fn init() -> Args {
@@ -125,14 +128,14 @@ fn init() -> Args {
     // Test the token.
     print!("Testing API key... ");
     test_key(api_key).map_or((), |test_fail| {
-            match test_fail {
-                KeyTestFail::BadKey => println!("Bad API key!"),
-                KeyTestFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
-                KeyTestFail::SomethingBroke(e) => println!("Something broke! : {e:?}"),
-            }
-            std::process::exit(1)
-        });
-    println!("{}","API key is good!".green());
+        match test_fail {
+            KeyTestFail::BadKey => println!("Bad API key!"),
+            KeyTestFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
+            KeyTestFail::SomethingBroke(e) => println!("Something broke! : {e:?}"),
+        }
+        std::process::exit(1)
+    });
+    println!("{}", "API key is good!".green());
     print!("Testing Channel ID... ");
 
     match test_channel_id(channel_id, api_key) {
@@ -149,9 +152,9 @@ fn init() -> Args {
 
     // Now get all video from the channel
     print!("Getting channel videos... ");
-    
+
     let videos: Vec<Video>;
-    
+
     match get_videos_from_channel(api_key, channel_id) {
         Ok(okay) => videos = okay,
         Err(fail) => {
@@ -164,12 +167,18 @@ fn init() -> Args {
             std::process::exit(1)
         }
     }
-    println!("{}", format!("Got {} channel videos!", videos.len()).green());
-    
+    println!(
+        "{}",
+        format!("Got {} channel videos!", videos.len()).green()
+    );
+
     // Should have some videos now!
     // print one of them.
 
-    println!("Most recent video is {}.",format!("{:?}",videos[0].title).yellow());
+    println!(
+        "Most recent video is {}.",
+        format!("{:?}", videos[0].title).yellow()
+    );
 
     // Now that we're done testing, return the args back to main.
     args
@@ -201,11 +210,9 @@ fn test_key(key: &str) -> Option<KeyTestFail> {
     match json["error"]["code"].as_i64() {
         None => None,                           // No error means test passed!
         Some(400) => Some(KeyTestFail::BadKey), // Token is no good!
-        Some(_) => {
-            Some(KeyTestFail::SomethingBroke(format!(
-                "Failure checking token! {json}"
-            )))
-        } //number other than 400!
+        Some(_) => Some(KeyTestFail::SomethingBroke(format!(
+            "Failure checking token! {json}"
+        ))), //number other than 400!
     }
 }
 
@@ -231,9 +238,7 @@ fn test_channel_id(channel_id: &str, key: &str) -> Result<String, ChannelTestFai
     let api_key = format!("&key={}", &key);
 
     // Combine the parts to create the full query
-    let query = format!(
-        "{API_URL}{base_url}?{part_param}&{id_param}&{fields_param}&{api_key}"
-    );
+    let query = format!("{API_URL}{base_url}?{part_param}&{id_param}&{fields_param}&{api_key}");
 
     // Run the query
     let mut result: std::result::Result<String, CurlFail> = c_get(&query);
@@ -358,9 +363,7 @@ fn get_comments_from_video(
     let vid_id = format!("videoId={video_id}&");
     let num_results = format!("maxResults={amount}");
     let fields = "&fields=items(snippet(topLevelComment(snippet(authorDisplayName%2CtextOriginal%2CpublishedAt))))";
-    let url = format!(
-        "{API_URL}{rq_type}{key}{format}{part}{vid_id}{num_results}{fields}"
-    );
+    let url = format!("{API_URL}{rq_type}{key}{format}{part}{vid_id}{num_results}{fields}");
 
     // Run the query
     let _result: Result<String, CurlFail> = c_get(&url);
@@ -460,9 +463,7 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
     let fields = "&fields=items(id(videoId)%2Csnippet(title))";
     let api_key = format!("&key={key}");
     let channel_param = format!("&channelId={channel_id}");
-    let query = format!(
-        "{API_URL}{function}{max_results}{order}{fields}{api_key}{channel_param}"
-    );
+    let query = format!("{API_URL}{function}{max_results}{order}{fields}{api_key}{channel_param}");
 
     // run that query
     let result: Result<String, CurlFail> = c_get(&query);
@@ -512,13 +513,21 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
 
     for item in items_array {
         // check for nulls
-        if item["snippet"]["title"] == Value::Null ||  item["id"]["videoId"] == Value::Null {
+        if item["snippet"]["title"] == Value::Null || item["id"]["videoId"] == Value::Null {
             // Nulls are a no-no, skip
             continue;
         }
         let wrapped: Video = Video {
-            title: item["snippet"]["title"].to_string().trim().replace(bad_chars, "").to_string(),
-            id: item["id"]["videoId"].to_string().trim().replace(bad_chars, "").to_string(),
+            title: item["snippet"]["title"]
+                .to_string()
+                .trim()
+                .replace(bad_chars, "")
+                .to_string(),
+            id: item["id"]["videoId"]
+                .to_string()
+                .trim()
+                .replace(bad_chars, "")
+                .to_string(),
         };
         // onto the vec it goes
         return_vec.push(wrapped);
@@ -530,13 +539,16 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
 #[derive(Debug)]
 enum ListUpdateError {
     ChannelIssue(ChannelVideosFail),
-    SomethingElse(String)
+    SomethingElse(String),
 }
 
-fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Result<Vec<TrackedVideo>, ListUpdateError> {
+fn update_video_list(
+    old: Vec<TrackedVideo>,
+    channel_id: &str,
+    key: &str,
+) -> Result<Vec<TrackedVideo>, ListUpdateError> {
     // This function takes in the list of videos, checks the channel to see
     // if there are videos on the channel that do not exist in the list yet.
-
 
     // grab all of the videos off of the channel
     let current_videos = match get_videos_from_channel(key, channel_id) {
@@ -550,13 +562,13 @@ fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Res
 
     if old.len() == current_videos.len() {
         // The same! exit early
-        return Ok(old)
+        return Ok(old);
     }
 
     // Build the new videos into a TrackedVideo
-    let mut new_tracked_videos:Vec<TrackedVideo> = Vec::new();
+    let mut new_tracked_videos: Vec<TrackedVideo> = Vec::new();
 
-    for i in current_videos{
+    for i in current_videos {
         new_tracked_videos.push(TrackedVideo {
             title: i.title,
             video_id: i.id,
@@ -570,7 +582,11 @@ fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Res
     // and remove dupes.
 
     //`old` comes first to make sure we discard matching news, not olds.
-    let mut output: Vec<TrackedVideo> = old.iter().chain(new_tracked_videos.iter()).cloned().collect();
+    let mut output: Vec<TrackedVideo> = old
+        .iter()
+        .chain(new_tracked_videos.iter())
+        .cloned()
+        .collect();
     output.sort_by(|a, b| a.video_id.cmp(&b.video_id));
     output.dedup_by(|a, b| a.video_id == b.video_id);
 
@@ -584,16 +600,18 @@ enum CommentQueueFail {
     CurlFailed(CurlFail),
 }
 
-fn queue_comments(video_list: Vec<TrackedVideo>, key:&str ) -> Result<Vec<TrackedVideo>, CommentQueueFail> {
+fn queue_comments(
+    video_list: Vec<TrackedVideo>,
+    key: &str,
+) -> Result<Vec<TrackedVideo>, CommentQueueFail> {
     // This function takes in a list of tracked videos, and updates each entry with
     // new comments on those videos.
 
-    let mut output_list: Vec<TrackedVideo> =  Vec::new();
+    let mut output_list: Vec<TrackedVideo> = Vec::new();
 
     // Loop over each video in the list!
 
     for video in video_list {
-        
         // TODO: timed update checking.
         // if update not needed continue
 
@@ -604,9 +622,13 @@ fn queue_comments(video_list: Vec<TrackedVideo>, key:&str ) -> Result<Vec<Tracke
             Ok(messages) => messages,
             Err(error) => match error {
                 CommentFail::NoComments => continue, // There are no comments, so there cant be any new ones either!
-                CommentFail::BadKey | CommentFail::EpochFail => return Err(CommentQueueFail::CommentFailed(error)),
+                CommentFail::BadKey | CommentFail::EpochFail => {
+                    return Err(CommentQueueFail::CommentFailed(error))
+                }
                 CommentFail::CurlFailure(error) => return Err(CommentQueueFail::CurlFailed(error)),
-                CommentFail::SomethingElse(error) => return Err(CommentQueueFail::SomethingElse(error)),
+                CommentFail::SomethingElse(error) => {
+                    return Err(CommentQueueFail::SomethingElse(error))
+                }
             },
         };
 
