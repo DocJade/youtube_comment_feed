@@ -13,7 +13,8 @@
 
 // TODO: convert emoji's into their names.
 
-use std::{vec, f32::consts::E};
+
+use core::panic;
 
 // Import the CLI argument parser
 use clap::Parser;
@@ -66,30 +67,29 @@ fn main() {
         Ok(okay) => master = okay,
         Err(error) => match error {
             ListUpdateError::ChannelIssue(e) => match e {
-                ChannelVideosFail::NoVideos => !unreachable!(),
-                ChannelVideosFail::BadKey => !unreachable!(),
+                ChannelVideosFail::NoVideos | ChannelVideosFail::BadKey => panic!("Should be unreachable! bad key or no videos!"),
                 ChannelVideosFail::CurlFailure(e) => {
                     // we need to go deeper.
                     match e {
                         CurlFail::SomethingBroke(e) => {
-                            print!("Unknown curl failure during first list build! : {}", e)
+                            print!("Unknown curl failure during first list build! : {e}");
                         },
-                        CurlFail::BadURL => !unreachable!(),
-                        CurlFail::DataIssue => !unreachable!(),
-                        CurlFail::HeaderIssue => !unreachable!(),
+                        CurlFail::BadURL | CurlFail::DataIssue | CurlFail::HeaderIssue => panic!("Should be unreachable! BadURL DataIssue HeaderIssue"),
                     }
                 },
                 ChannelVideosFail::SomethingElse(e) => {
-                    print!("Unknown failure during first list build! : {}", e)
+                    print!("Unknown failure during first list build! : {e}");
+                    std::process::exit(1)
                 },
             },
             ListUpdateError::SomethingElse(e) => {
-                print!("Unknown failure during first list build! : {}", e)
+                print!("Unknown failure during first list build! : {e}");
+                std::process::exit(1)
             },
         },
     }
     println!("Done!");
-    println!("{:?}", master);
+    println!("{master:?}");
     
 }
 
@@ -103,17 +103,14 @@ fn init() -> Args {
 
     // Test the token.
     println!("Testing API key...");
-    match test_key(api_key) {
-        Some(test_fail) => {
+    test_key(api_key).map_or((), |test_fail| {
             match test_fail {
                 KeyTestFail::BadKey => println!("Bad API key!"),
-                KeyTestFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
-                KeyTestFail::SomethingBroke(e) => println!("Something broke! : {:?}", e),
+                KeyTestFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
+                KeyTestFail::SomethingBroke(e) => println!("Something broke! : {e:?}"),
             }
             std::process::exit(1)
-        }
-        None => (),
-    }
+        });
     println!("API key is good!");
     println!("Testing Channel ID...");
 
@@ -121,12 +118,12 @@ fn init() -> Args {
         Err(test_fail) => {
             match test_fail {
                 ChannelTestFail::BadChannel => println!("Bad Channel ID!"),
-                ChannelTestFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
-                ChannelTestFail::SomethingBroke(e) => println!("Something broke! : {:?}", e),
+                ChannelTestFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
+                ChannelTestFail::SomethingBroke(e) => println!("Something broke! : {e:?}"),
             }
             std::process::exit(1)
         }
-        Ok(name) => println!("Found {:?}!", name),
+        Ok(name) => println!("Found {name:?}!"),
     }
 
     // Now get all video from the channel
@@ -140,8 +137,8 @@ fn init() -> Args {
             match fail {
                 ChannelVideosFail::NoVideos => println!("Channel appears to have no videos!"),
                 ChannelVideosFail::BadKey => println!("Key went bad?"),
-                ChannelVideosFail::CurlFailure(e) => println!("Curl failed! : {:?}", e),
-                ChannelVideosFail::SomethingElse(e) => println!("Something broke! : {:?}", e),
+                ChannelVideosFail::CurlFailure(e) => println!("Curl failed! : {e:?}"),
+                ChannelVideosFail::SomethingElse(e) => println!("Something broke! : {e:?}"),
             }
             std::process::exit(1)
         }
@@ -154,7 +151,7 @@ fn init() -> Args {
     println!("Most recent video is {:?}.",videos[0].title);
 
     // Now that we're done testing, return the args back to main.
-    return args;
+    args
 }
 
 #[derive(Debug)]
@@ -181,12 +178,11 @@ fn test_key(key: &str) -> Option<KeyTestFail> {
     let json: Value = serde_json::from_str(&result.unwrap()).unwrap(); //TODO: double unwrap! ugly!
                                                                        // Now test if we got an error response.
     match json["error"]["code"].as_i64() {
-        None => return None,                           // No error means test passed!
-        Some(400) => return Some(KeyTestFail::BadKey), // Token is no good!
+        None => None,                           // No error means test passed!
+        Some(400) => Some(KeyTestFail::BadKey), // Token is no good!
         Some(_) => {
-            return Some(KeyTestFail::SomethingBroke(format!(
-                "Failure checking token! {}",
-                json
+            Some(KeyTestFail::SomethingBroke(format!(
+                "Failure checking token! {json}"
             )))
         } //number other than 400!
     }
@@ -207,7 +203,7 @@ fn test_channel_id(channel_id: &str, key: &str) -> Result<String, ChannelTestFai
 
     // Query parameters
     let part_param = "part=snippet";
-    let id_param = format!("id={}", channel_id);
+    let id_param = format!("id={channel_id}");
     let fields_param = "fields=items(snippet(title))";
 
     // API Key
@@ -215,8 +211,7 @@ fn test_channel_id(channel_id: &str, key: &str) -> Result<String, ChannelTestFai
 
     // Combine the parts to create the full query
     let query = format!(
-        "{}{}?{}&{}&{}&{}",
-        API_URL, base_url, part_param, id_param, fields_param, api_key
+        "{API_URL}{base_url}?{part_param}&{id_param}&{fields_param}&{api_key}"
     );
 
     // Run the query
@@ -238,8 +233,7 @@ fn test_channel_id(channel_id: &str, key: &str) -> Result<String, ChannelTestFai
         Some(400) => return Err(ChannelTestFail::BadChannel), // Token is no good!
         Some(_) => {
             return Err(ChannelTestFail::SomethingBroke(format!(
-                "Failure checking channel! {}",
-                json
+                "Failure checking channel! {json}"
             )))
         } //number other than 400!
     }
@@ -269,7 +263,7 @@ fn c_get(input: &str) -> std::result::Result<String, CurlFail> {
 
     // Set the URL
 
-    match curl.url(&input) {
+    match curl.url(input) {
         Ok(_) => (),
         Err(_) => return Err(CurlFail::BadURL),
     }
@@ -336,29 +330,28 @@ fn get_comments_from_video(
     //https://www.googleapis.com/youtube/v3/commentThreads?key=[KEY]&textFormat=plainText&part=snippet&videoId=[VIDEO_ID]&maxResults=[AMOUNT]]
 
     // Create the Curl address.
-    let _rq_type = "commentThreads?";
-    let _key = format!("key={}&", key);
-    let _format = "textFormat=plainText&";
-    let _part = "part=snippet&";
-    let _vid_id = format!("videoId={}&", video_id);
-    let _num_results = format!("maxResults={}", amount);
-    let _fields = "&fields=items(snippet(topLevelComment(snippet(authorDisplayName%2CtextOriginal%2CpublishedAt))))";
-    let _url = format!(
-        "{}{}{}{}{}{}{}{}",
-        API_URL, _rq_type, _key, _format, _part, _vid_id, _num_results, _fields
+    let rq_type = "commentThreads?";
+    let key = format!("key={key}&");
+    let format = "textFormat=plainText&";
+    let part = "part=snippet&";
+    let vid_id = format!("videoId={video_id}&");
+    let num_results = format!("maxResults={amount}");
+    let fields = "&fields=items(snippet(topLevelComment(snippet(authorDisplayName%2CtextOriginal%2CpublishedAt))))";
+    let url = format!(
+        "{API_URL}{rq_type}{key}{format}{part}{vid_id}{num_results}{fields}"
     );
 
     // Run the query
-    let _result: Result<String, CurlFail> = c_get(&_url);
-    let mut _json: String;
+    let _result: Result<String, CurlFail> = c_get(&url);
+
     // Roll up errors
-    match _result {
-        Ok(okay) => _json = okay,
+    let json: String = match _result {
+        Ok(okay) => okay,
         Err(error) => return Err(CommentFail::CurlFailure(error)),
-    }
+    };
 
     // We've got good JSON, time to pull the comments out of it.
-    let unwrapped_json: Value = serde_json::from_str(&_json).unwrap();
+    let unwrapped_json: Value = serde_json::from_str(&json).unwrap();
 
     // First we need to check if we were given an error code.
 
@@ -367,8 +360,7 @@ fn get_comments_from_video(
         Some(400) => return Err(CommentFail::BadKey), // Token is no good!
         Some(code) => {
             return Err(CommentFail::SomethingElse(format!(
-                "Unknown response code! : {}",
-                code
+                "Unknown response code! : {code}"
             )))
         }
     };
@@ -423,7 +415,7 @@ fn get_comments_from_video(
         // No comments!
         return Err(CommentFail::NoComments);
     }
-    return Ok(return_vec);
+    Ok(return_vec)
 }
 
 #[derive(Debug)]
@@ -447,11 +439,10 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
     let max_results = "&maxResults=4294967295";
     let order = "&order=date";
     let fields = "&fields=items(id(videoId)%2Csnippet(title))";
-    let api_key = format!("&key={}", key);
-    let channel_param = format!("&channelId={}", channel_id);
+    let api_key = format!("&key={key}");
+    let channel_param = format!("&channelId={channel_id}");
     let query = format!(
-        "{}{}{}{}{}{}{}",
-        API_URL, function, max_results, order, fields, api_key, channel_param
+        "{API_URL}{function}{max_results}{order}{fields}{api_key}{channel_param}"
     );
 
     // run that query
@@ -459,12 +450,11 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
 
     // Handle them errors.
 
-    let json: String;
     // Roll up errors
-    match result {
-        Ok(okay) => json = okay,
+    let json: String = match result {
+        Ok(okay) => okay,
         Err(error) => return Err(ChannelVideosFail::CurlFailure(error)),
-    }
+    };
 
     // Good stuff, crack it open.
     let unwrapped_json: Value = serde_json::from_str(&json).unwrap();
@@ -476,8 +466,7 @@ fn get_videos_from_channel(key: &str, channel_id: &str) -> Result<Vec<Video>, Ch
         Some(400) => return Err(ChannelVideosFail::BadKey), // Token is no good!
         Some(code) => {
             return Err(ChannelVideosFail::SomethingElse(format!(
-                "Unknown response code! : {}",
-                code
+                "Unknown response code! : {code}"
             )))
         }
     };
@@ -529,12 +518,10 @@ fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Res
     // This function takes in the list of videos, checks the channel to see
     // if there are videos on the channel that do not exist in the list yet.
 
-    let mut current_videos: Vec<Video> = Vec::new();
-    let mut output: Vec<TrackedVideo> = Vec::new();
 
     // grab all of the videos off of the channel
-    match get_videos_from_channel(key, channel_id) {
-        Ok(okay) => current_videos = okay,
+    let current_videos = match get_videos_from_channel(key, channel_id) {
+        Ok(okay) => okay,
         Err(error) => return Err(ListUpdateError::ChannelIssue(error)),
     };
 
@@ -569,5 +556,5 @@ fn update_video_list(old: Vec<TrackedVideo>, channel_id: &str, key: &str) -> Res
     output.dedup_by(|a, b| a.video_id == b.video_id);
 
     // we're done!
-    return Ok(output);
+    Ok(output)
 }
